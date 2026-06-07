@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "excel-modules"
+version = "1.0.0"
+description = "Excel/CSV data-cleaning operations (Python companion to the VBA modules)."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = ["openpyxl", "pandas"]
+
+[project.scripts]
+excel-utils = "excel_utils:main"
+
+[tool.setuptools]
+py-modules = ["excel_utils"]
