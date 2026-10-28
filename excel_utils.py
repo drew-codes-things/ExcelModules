@@ -21,6 +21,7 @@ original is never overwritten. Pass --output PATH to choose the output name.
 import argparse
 import csv as csvlib
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -50,7 +51,8 @@ def resolve_output(path: str, default_suffix: str, ext: str) -> str:
     """Single source of truth for output naming: honour --output, else <stem><suffix><ext>."""
     if OUTPUT_OVERRIDE:
         return OUTPUT_OVERRIDE
-    return Path(path).stem + default_suffix + ext
+    source = Path(path)
+    return str(source.with_name(source.stem + default_suffix + ext))
 
 
 def resolve_output_xlsx(path: str, default_suffix: str) -> str:
@@ -60,7 +62,8 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
         if not o.lower().endswith(".xlsx"):
             o = str(Path(o).with_suffix(".xlsx"))
         return o
-    return Path(path).stem + default_suffix + ".xlsx"
+    source = Path(path)
+    return str(source.with_name(source.stem + default_suffix + ".xlsx"))
 
 
 def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]":
@@ -92,10 +95,41 @@ def save_output(path: str, df: pd.DataFrame, sheet: str) -> str:
     out = resolve_output(path, "_processed", ext)
     if out.lower().endswith(".csv"):
         df.to_csv(out, index=False)
+    elif not is_csv(path):
+        # Start from a copy of the workbook so its other sheets come along,
+        # then replace just the sheet that was processed.
+        if Path(out).resolve() != Path(path).resolve():
+            shutil.copyfile(path, out)
+        with pd.ExcelWriter(out, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            df.to_excel(writer, sheet_name=sheet, index=False)
     else:
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name=sheet, index=False)
     return out
+
+
+def count_changed(before: "pd.Series", after: "pd.Series") -> int:
+    """Cells whose value changed; an empty cell that stays empty doesn't count (NaN != NaN)."""
+    same = before.eq(after) | (before.isna() & after.isna())
+    return int((~same).sum())
+
+
+def transform_text(df: "pd.DataFrame", change) -> int:
+    """Apply change() to every string cell (numbers and blanks are left alone); return how many changed."""
+    changed = 0
+    for col in df.select_dtypes(include="object").columns:
+        original = df[col].copy()
+        df[col] = df[col].apply(lambda v: change(v) if isinstance(v, str) else v)
+        changed += count_changed(original, df[col])
+    return changed
+
+
+def require_columns(df: "pd.DataFrame", columns: list) -> bool:
+    missing = [c for c in columns if c not in df.columns]
+    if missing:
+        print(f"Unknown column(s): {missing}. Available: {list(df.columns)}")
+        return False
+    return True
 
 
 
@@ -132,13 +166,7 @@ def brackets_around_4_digits(path: str) -> str:
     text cell across the first sheet.
     """
     df, sheet = load_df(path)
-    changed = 0
-    for col in df.select_dtypes(include="object").columns:
-        original = df[col].copy()
-        df[col] = df[col].apply(
-            lambda v: _FOUR_DIGIT.sub(r"(\1)", str(v)) if pd.notna(v) else v
-        )
-        changed += (df[col] != original).sum()
+    changed = transform_text(df, lambda v: _FOUR_DIGIT.sub(r"(\1)", v))
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
@@ -148,11 +176,7 @@ def brackets_around_4_digits(path: str) -> str:
 def capitalise_proper(path: str) -> str:
     """Apply Title Case to every text cell (mirrors CapitalizeFirstLetter)."""
     df, sheet = load_df(path)
-    changed = 0
-    for col in df.select_dtypes(include="object").columns:
-        original = df[col].copy()
-        df[col] = df[col].apply(lambda v: str(v).title() if pd.notna(v) else v)
-        changed += (df[col] != original).sum()
+    changed = transform_text(df, str.title)
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) converted. Output: {out}")
     return out
@@ -161,13 +185,7 @@ def capitalise_proper(path: str) -> str:
 def capitalise_first_only(path: str) -> str:
     """Capitalise only the first character of each text cell."""
     df, sheet = load_df(path)
-    changed = 0
-    for col in df.select_dtypes(include="object").columns:
-        original = df[col].copy()
-        df[col] = df[col].apply(
-            lambda v: str(v)[0].upper() + str(v)[1:] if pd.notna(v) and len(str(v)) > 0 else v
-        )
-        changed += (df[col] != original).sum()
+    changed = transform_text(df, lambda v: v[:1].upper() + v[1:])
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
@@ -189,14 +207,18 @@ def highlight_duplicates_multi_column(path: str, columns: list) -> str:
         print("No valid columns found for duplicate highlighting.")
         return path
 
-    keys = [
-        "\x00".join(str(ws.cell(r, ci).value) for ci in col_indices)
-        for r in range(2, ws.max_row + 1)
-    ]
-    counts = Counter(keys)
+    def row_key(row):
+        values = [ws.cell(row, ci).value for ci in col_indices]
+        # Rows that are blank in every key column aren't duplicates of anything.
+        if all(v is None or str(v).strip() == "" for v in values):
+            return None
+        return "\x00".join(str(v) for v in values)
+
+    keys = [row_key(r) for r in range(2, ws.max_row + 1)]
+    counts = Counter(k for k in keys if k is not None)
     highlighted = 0
     for i, key in enumerate(keys):
-        if counts[key] > 1:
+        if key is not None and counts[key] > 1:
             for ci in col_indices:
                 ws.cell(i + 2, ci).fill = YELLOW_FILL
             highlighted += 1
@@ -216,6 +238,10 @@ def highlight_duplicates_across_sheets(path: str, col_name: str, sheet_a: str, s
         print("Cross-sheet highlight needs a multi-sheet .xlsx, not a CSV.")
         return path
     wb = load_workbook(path)
+    unknown = [name for name in (sheet_a, sheet_b) if name not in wb.sheetnames]
+    if unknown:
+        print(f"Unknown sheet(s): {unknown}. Available: {wb.sheetnames}")
+        return path
     ws_a = wb[sheet_a]
     ws_b = wb[sheet_b]
 
@@ -227,7 +253,7 @@ def highlight_duplicates_across_sheets(path: str, col_name: str, sheet_a: str, s
         print(f"Column '{col_name}' not found in one or both sheets.")
         return path
 
-    vals_b = {ws_b.cell(r, ci_b).value for r in range(2, ws_b.max_row + 1)}
+    vals_b = {ws_b.cell(r, ci_b).value for r in range(2, ws_b.max_row + 1)} - {None}
     highlighted = 0
     for r in range(2, ws_a.max_row + 1):
         cell = ws_a.cell(r, ci_a)
@@ -249,6 +275,8 @@ def remove_exact_duplicates(path: str, columns: Optional[list] = None,
     Mirrors RemoveExactDuplicates / RemoveDuplicatesKeepFirst.
     """
     df, sheet = load_df(path)
+    if columns and not require_columns(df, columns):
+        return path
     before = len(df)
     df.drop_duplicates(subset=columns, keep=keep, inplace=True, ignore_index=True)
     removed = before - len(df)
@@ -264,14 +292,10 @@ def strip_whitespace(path: str, remove_all: bool = False) -> str:
     If remove_all=True, strips ALL spaces (mirrors RemoveAllSpaces).
     """
     df, sheet = load_df(path)
-    changed = 0
-    for col in df.select_dtypes(include="object").columns:
-        original = df[col].copy()
-        if remove_all:
-            df[col] = df[col].apply(lambda v: str(v).replace(" ", "") if pd.notna(v) else v)
-        else:
-            df[col] = df[col].apply(lambda v: " ".join(str(v).split()) if pd.notna(v) else v)
-        changed += (df[col] != original).sum()
+    if remove_all:
+        changed = transform_text(df, lambda v: v.replace(" ", ""))
+    else:
+        changed = transform_text(df, lambda v: " ".join(v.split()))
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
