@@ -1,23 +1,3 @@
-"""
-excel_utils.py  -  Python companion to the ExcelModules VBA collection.
-
-Provides the same six data-cleaning / formatting operations using
-openpyxl and pandas, for users who have macros disabled, use LibreOffice,
-or work on macOS / Linux.
-
-Requirements:
-    pip install openpyxl pandas
-    Python >= 3.8  (uses Optional[] from typing; 3.10+ X | Y syntax avoided
-                   intentionally so the module works on older interpreters)
-
-Usage:
-    python excel_utils.py
-
-Accepts .xlsx or .csv input. By default writes to a NEW file
-(<original>_processed.<ext>, or _highlighted.xlsx for highlight ops) so the
-original is never overwritten. Pass --output PATH to choose the output name.
-"""
-
 import argparse
 import csv as csvlib
 import re
@@ -36,7 +16,6 @@ except ImportError:
     sys.exit(1)
 
 
-
 YELLOW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 RED_FILL    = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 
@@ -48,7 +27,6 @@ def is_csv(path: str) -> bool:
 
 
 def resolve_output(path: str, default_suffix: str, ext: str) -> str:
-    """Single source of truth for output naming: honour --output, else <stem><suffix><ext>."""
     if OUTPUT_OVERRIDE:
         return OUTPUT_OVERRIDE
     source = Path(path)
@@ -56,7 +34,6 @@ def resolve_output(path: str, default_suffix: str, ext: str) -> str:
 
 
 def resolve_output_xlsx(path: str, default_suffix: str) -> str:
-    """Like resolve_output but forces .xlsx (highlight ops need cell fills)."""
     if OUTPUT_OVERRIDE:
         o = OUTPUT_OVERRIDE
         if not o.lower().endswith(".xlsx"):
@@ -67,7 +44,6 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
 
 
 def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]":
-    """Load a CSV or Excel sheet into a DataFrame. Returns (df, sheet_name)."""
     if is_csv(path):
         return pd.read_csv(path), "Sheet1"
     wb = load_workbook(path)
@@ -77,7 +53,6 @@ def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]
 
 
 def load_ws_workbook(path: str):
-    """Return an openpyxl Workbook for cell-fill operations, building one from a CSV if needed."""
     if is_csv(path):
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -90,14 +65,11 @@ def load_ws_workbook(path: str):
 
 
 def save_output(path: str, df: pd.DataFrame, sheet: str) -> str:
-    """Write df to the resolved output path (CSV in -> CSV out, unless --output says otherwise)."""
     ext = ".csv" if is_csv(path) else ".xlsx"
     out = resolve_output(path, "_processed", ext)
     if out.lower().endswith(".csv"):
         df.to_csv(out, index=False)
     elif not is_csv(path):
-        # Start from a copy of the workbook so its other sheets come along,
-        # then replace just the sheet that was processed.
         if Path(out).resolve() != Path(path).resolve():
             shutil.copyfile(path, out)
         with pd.ExcelWriter(out, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
@@ -109,13 +81,11 @@ def save_output(path: str, df: pd.DataFrame, sheet: str) -> str:
 
 
 def count_changed(before: "pd.Series", after: "pd.Series") -> int:
-    """Cells whose value changed; an empty cell that stays empty doesn't count (NaN != NaN)."""
     same = before.eq(after) | (before.isna() & after.isna())
     return int((~same).sum())
 
 
 def transform_text(df: "pd.DataFrame", change) -> int:
-    """Apply change() to every string cell (numbers and blanks are left alone); return how many changed."""
     changed = 0
     for col in df.select_dtypes(include="object").columns:
         original = df[col].copy()
@@ -132,12 +102,7 @@ def require_columns(df: "pd.DataFrame", columns: list) -> bool:
     return True
 
 
-
 def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
-    """
-    Sort the DataFrame by the given column(s) alphabetically.
-    Numeric columns are skipped (same behaviour as the VBA module).
-    """
     df, sheet = load_df(path)
 
     existing_cols = [c for c in columns if c in df.columns]
@@ -156,15 +121,10 @@ def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
     return out
 
 
-
 _FOUR_DIGIT = re.compile(r"(?<![\(\d])(\d{4})(?![\)\d])")
 
 
 def brackets_around_4_digits(path: str) -> str:
-    """
-    Wrap standalone 4-digit numbers (e.g. years) in parentheses in every
-    text cell across the first sheet.
-    """
     df, sheet = load_df(path)
     changed = transform_text(df, lambda v: _FOUR_DIGIT.sub(r"(\1)", v))
     out = save_output(path, df, sheet)
@@ -172,9 +132,7 @@ def brackets_around_4_digits(path: str) -> str:
     return out
 
 
-
 def capitalise_proper(path: str) -> str:
-    """Apply Title Case to every text cell (mirrors CapitalizeFirstLetter)."""
     df, sheet = load_df(path)
     changed = transform_text(df, str.title)
     out = save_output(path, df, sheet)
@@ -183,7 +141,6 @@ def capitalise_proper(path: str) -> str:
 
 
 def capitalise_first_only(path: str) -> str:
-    """Capitalise only the first character of each text cell."""
     df, sheet = load_df(path)
     changed = transform_text(df, lambda v: v[:1].upper() + v[1:])
     out = save_output(path, df, sheet)
@@ -191,12 +148,7 @@ def capitalise_first_only(path: str) -> str:
     return out
 
 
-
 def highlight_duplicates_multi_column(path: str, columns: list) -> str:
-    """
-    Highlight rows whose combined key across `columns` is duplicated.
-    Writes yellow fill to matching rows. Mirrors HighlightDuplicatesMultiColumn.
-    """
     from collections import Counter
     wb = load_ws_workbook(path)
     ws = wb.active
@@ -209,7 +161,6 @@ def highlight_duplicates_multi_column(path: str, columns: list) -> str:
 
     def row_key(row):
         values = [ws.cell(row, ci).value for ci in col_indices]
-        # Rows that are blank in every key column aren't duplicates of anything.
         if all(v is None or str(v).strip() == "" for v in values):
             return None
         return "\x00".join(str(v) for v in values)
@@ -230,10 +181,6 @@ def highlight_duplicates_multi_column(path: str, columns: list) -> str:
 
 
 def highlight_duplicates_across_sheets(path: str, col_name: str, sheet_a: str, sheet_b: str) -> str:
-    """
-    Highlight cells in sheet_a[col_name] that also appear in sheet_b[col_name].
-    Mirrors HighlightDuplicatesAcrossSheets.
-    """
     if is_csv(path):
         print("Cross-sheet highlight needs a multi-sheet .xlsx, not a CSV.")
         return path
@@ -267,13 +214,8 @@ def highlight_duplicates_across_sheets(path: str, col_name: str, sheet_a: str, s
     return out
 
 
-
 def remove_exact_duplicates(path: str, columns: Optional[list] = None,
                             keep: str = "first") -> str:
-    """
-    Remove duplicate rows. `keep` can be 'first', 'last', or False (remove all).
-    Mirrors RemoveExactDuplicates / RemoveDuplicatesKeepFirst.
-    """
     df, sheet = load_df(path)
     if columns and not require_columns(df, columns):
         return path
@@ -285,12 +227,7 @@ def remove_exact_duplicates(path: str, columns: Optional[list] = None,
     return out
 
 
-
 def strip_whitespace(path: str, remove_all: bool = False) -> str:
-    """
-    Trim leading/trailing (and double) spaces from every text cell.
-    If remove_all=True, strips ALL spaces (mirrors RemoveAllSpaces).
-    """
     df, sheet = load_df(path)
     if remove_all:
         changed = transform_text(df, lambda v: v.replace(" ", ""))
@@ -299,7 +236,6 @@ def strip_whitespace(path: str, remove_all: bool = False) -> str:
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
-
 
 
 MENU = """

@@ -1,31 +1,24 @@
 Attribute VB_Name = "HighlightDuplicates"
 Option Explicit
 
-Const HIGHLIGHT_COLOR     As Long = 65535   ' Yellow
-Const CROSS_SHEET_COLOR   As Long = 16711680 ' Red
+Const HIGHLIGHT_COLOR     As Long = 65535
+Const CROSS_SHEET_COLOR   As Long = 255
 
-' =======================================================================
-' Sub 1: Highlight rows where the COMBINED KEY across all selected
-'        columns is duplicated. Works across multiple columns simultaneously
-'        - not possible with built-in Conditional Formatting.
-' Usage: Select the range (including all columns to check), run macro.
-' =======================================================================
 Sub HighlightDuplicatesMultiColumn()
     On Error GoTo ErrorHandler
 
     Dim ws          As Worksheet
     Dim rng         As Range
-    Dim cell        As Range
     Dim keys        As Object
     Dim rowKey      As String
+    Dim hasValue    As Boolean
     Dim r           As Long
     Dim c           As Long
     Dim highlighted As Long
 
-    Set ws  = ActiveSheet
+    Set ws = ActiveSheet
     Set rng = Selection
 
-    ' --- Backup prompt ---
     If MsgBox("Create a backup sheet before running?" & vbCrLf & _
               "A copy of the active sheet will be saved as Backup_YYYYMMDD.", _
               vbYesNo + vbQuestion, "Backup?") = vbYes Then
@@ -35,39 +28,27 @@ Sub HighlightDuplicatesMultiColumn()
     Set keys = CreateObject("Scripting.Dictionary")
     highlighted = 0
 
-    ' First pass: build a key for every row in the selection
     Dim firstRow As Long
     Dim lastRow  As Long
     Dim firstCol As Long
     Dim lastCol  As Long
     firstRow = rng.Row
-    lastRow  = rng.Row + rng.Rows.Count - 1
+    lastRow = rng.Row + rng.Rows.Count - 1
     firstCol = rng.Column
-    lastCol  = rng.Column + rng.Columns.Count - 1
+    lastCol = rng.Column + rng.Columns.Count - 1
 
     For r = firstRow To lastRow
-        rowKey = ""
-        For c = firstCol To lastCol
-            rowKey = rowKey & CStr(ws.Cells(r, c).Value) & Chr(0)
-        Next c
-        If keys.exists(rowKey) Then
-            keys(rowKey) = keys(rowKey) + 1
-        Else
-            keys.Add rowKey, 1
-        End If
+        rowKey = RowKeyOf(ws, r, firstCol, lastCol, hasValue)
+        If hasValue Then keys(rowKey) = keys(rowKey) + 1
     Next r
 
-    ' Second pass: highlight rows whose key appeared more than once
     For r = firstRow To lastRow
-        rowKey = ""
-        For c = firstCol To lastCol
-            rowKey = rowKey & CStr(ws.Cells(r, c).Value) & Chr(0)
-        Next c
-        If keys(rowKey) > 1 Then
-            For c = firstCol To lastCol
-                ws.Cells(r, c).Interior.Color = HIGHLIGHT_COLOR
-            Next c
-            highlighted = highlighted + 1
+        rowKey = RowKeyOf(ws, r, firstCol, lastCol, hasValue)
+        If hasValue Then
+            If keys(rowKey) > 1 Then
+                ws.Range(ws.Cells(r, firstCol), ws.Cells(r, lastCol)).Interior.Color = HIGHLIGHT_COLOR
+                highlighted = highlighted + 1
+            End If
         End If
     Next r
 
@@ -85,14 +66,6 @@ ErrorHandler:
            vbCritical, "Highlight Error"
 End Sub
 
-
-' =======================================================================
-' Sub 2: Highlight cells in Sheet A column that also appear in the SAME
-'        column on Sheet B. Built-in Conditional Formatting cannot compare
-'        across sheets.
-' Usage: Select the column range on Sheet A, run macro. You will be
-'        prompted for the name of Sheet B.
-' =======================================================================
 Sub HighlightDuplicatesAcrossSheets()
     On Error GoTo ErrorHandler
 
@@ -101,13 +74,12 @@ Sub HighlightDuplicatesAcrossSheets()
     Dim rngA        As Range
     Dim cell        As Range
     Dim sheetBName  As String
-    Dim colB        As Range
+    Dim lookups     As Object
     Dim highlighted As Long
 
-    Set wsA  = ActiveSheet
+    Set wsA = ActiveSheet
     Set rngA = Selection
 
-    ' --- Backup prompt ---
     If MsgBox("Create a backup sheet before running?" & vbCrLf & _
               "A copy of the active sheet will be saved as Backup_YYYYMMDD.", _
               vbYesNo + vbQuestion, "Backup?") = vbYes Then
@@ -129,16 +101,19 @@ Sub HighlightDuplicatesAcrossSheets()
         MsgBox "Sheet '" & sheetBName & "' was not found in this workbook.", vbExclamation
         Exit Sub
     End If
+    If wsB Is wsA Then
+        MsgBox "Pick a different sheet - every cell would match itself.", vbExclamation
+        Exit Sub
+    End If
 
-    ' Build the comparison range on Sheet B (same column, used range rows)
-    Set colB = wsB.Range( _
-        wsB.Cells(1, rngA.Column), _
-        wsB.Cells(wsB.Cells(wsB.Rows.Count, rngA.Column).End(xlUp).Row, rngA.Column))
-
+    Set lookups = CreateObject("Scripting.Dictionary")
     highlighted = 0
     For Each cell In rngA
         If Not IsEmpty(cell.Value) Then
-            If WorksheetFunction.CountIf(colB, cell.Value) > 0 Then
+            If Not lookups.exists(cell.Column) Then
+                lookups.Add cell.Column, ColumnValues(wsB, cell.Column)
+            End If
+            If lookups(cell.Column).exists(CellKey(cell.Value)) Then
                 cell.Interior.Color = CROSS_SHEET_COLOR
                 highlighted = highlighted + 1
             End If
@@ -160,11 +135,65 @@ ErrorHandler:
            vbCritical, "Cross-Sheet Error"
 End Sub
 
-
 Sub ClearDuplicateHighlights()
-    Dim cell As Range
-    For Each cell In Selection
-        cell.Interior.ColorIndex = xlNone
-    Next cell
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Selection.Interior.ColorIndex = xlNone
     MsgBox "Highlights cleared.", vbInformation
 End Sub
+
+Private Function CellKey(v As Variant) As String
+    If IsError(v) Then
+        CellKey = "#ERROR"
+    Else
+        CellKey = CStr(v)
+    End If
+End Function
+
+Private Function RowKeyOf(ws As Worksheet, r As Long, firstCol As Long, lastCol As Long, _
+                          ByRef hasValue As Boolean) As String
+    Dim c As Long
+    hasValue = False
+    For c = firstCol To lastCol
+        If Not IsEmpty(ws.Cells(r, c).Value) Then hasValue = True
+        RowKeyOf = RowKeyOf & CellKey(ws.Cells(r, c).Value) & Chr(0)
+    Next c
+End Function
+
+Private Function ColumnValues(ws As Worksheet, col As Long) As Object
+    Dim values  As Object
+    Dim lastRow As Long
+    Dim r       As Long
+    Set values = CreateObject("Scripting.Dictionary")
+    values.CompareMode = vbTextCompare
+    lastRow = ws.Cells(ws.Rows.Count, col).End(xlUp).Row
+    For r = 1 To lastRow
+        If Not IsEmpty(ws.Cells(r, col).Value) Then values(CellKey(ws.Cells(r, col).Value)) = True
+    Next r
+    Set ColumnValues = values
+End Function
+
+Private Sub CreateBackupSheet(ws As Worksheet)
+    Dim backupName As String
+    Dim testName   As String
+    Dim counter    As Integer
+
+    backupName = "Backup_" & Format(Now(), "YYYYMMDD")
+    testName = backupName
+    counter = 1
+    Do While SheetExists(ws.Parent, testName)
+        testName = backupName & "_" & counter
+        counter = counter + 1
+    Loop
+    ws.Copy After:=ws.Parent.Sheets(ws.Parent.Sheets.Count)
+    ActiveSheet.Name = testName
+    ws.Activate
+    MsgBox "Backup created: '" & testName & "'", vbInformation, "Backup"
+End Sub
+
+Private Function SheetExists(wb As Workbook, shName As String) As Boolean
+    Dim sh As Object
+    On Error Resume Next
+    Set sh = wb.Sheets(shName)
+    On Error GoTo 0
+    SheetExists = Not sh Is Nothing
+End Function

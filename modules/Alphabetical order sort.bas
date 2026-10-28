@@ -9,20 +9,20 @@ Sub SortSelectedColumns()
     Dim colToSort   As Range
     Dim sortDir     As XlSortOrder
     Dim lastRow     As Long
-    Dim colIdx      As Integer
+    Dim colIdx      As Long
     Dim hasHeader   As Integer
     Dim response    As Integer
     Dim cell        As Range
     Dim hasText     As Boolean
 
-    Set ws = ActiveSheet
-
-    If Selection Is Nothing Then
+    If TypeName(Selection) <> "Range" Then
         MsgBox "No selection found. Please select at least one column.", vbExclamation
         Exit Sub
     End If
 
-    ' --- Backup prompt ---
+    Set ws = ActiveSheet
+    Set rng = Selection
+
     If MsgBox("Create a backup sheet before running?" & vbCrLf & _
               "A copy of the active sheet will be saved as Backup_YYYYMMDD.", _
               vbYesNo + vbQuestion, "Backup?") = vbYes Then
@@ -34,40 +34,42 @@ Sub SortSelectedColumns()
     If response = vbCancel Then Exit Sub
     sortDir = IIf(response = vbYes, xlAscending, xlDescending)
 
-    hasHeader = MsgBox("Does your selection include a header row in row 1?", _
+    hasHeader = MsgBox("Does the first row of your selection contain headers?", _
                        vbYesNo + vbQuestion, "Header Row?")
 
-    Set rng = Selection
-    lastRow = ws.Cells(ws.Rows.Count, rng.Column).End(xlUp).Row
-
     For colIdx = 1 To rng.Columns.Count
-        Set colToSort = ws.Range( _
-            rng.Cells(1, colIdx), _
-            ws.Cells(lastRow, rng.Cells(1, colIdx).Column))
+        lastRow = ws.Cells(ws.Rows.Count, rng.Cells(1, colIdx).Column).End(xlUp).Row
+        If lastRow >= rng.Row Then
+            Set colToSort = ws.Range( _
+                rng.Cells(1, colIdx), _
+                ws.Cells(lastRow, rng.Cells(1, colIdx).Column))
 
-        hasText = False
-        For Each cell In colToSort
-            If cell.Value Like "*[A-Za-z]*" Then
-                hasText = True
-                Exit For
+            hasText = False
+            For Each cell In colToSort
+                If Not IsError(cell.Value) Then
+                    If CStr(cell.Value) Like "*[A-Za-z]*" Then
+                        hasText = True
+                        Exit For
+                    End If
+                End If
+            Next cell
+
+            If hasText Then
+                ws.Sort.SortFields.Clear
+                ws.Sort.SortFields.Add Key:=colToSort, Order:=sortDir
+                With ws.Sort
+                    .SetRange colToSort
+                    .Header = IIf(hasHeader = vbYes, xlYes, xlNo)
+                    .MatchCase = False
+                    .Orientation = xlTopToBottom
+                    .Apply
+                End With
             End If
-        Next cell
-
-        If hasText Then
-            ws.Sort.SortFields.Clear
-            ws.Sort.SortFields.Add Key:=colToSort, Order:=sortDir
-            With ws.Sort
-                .SetRange colToSort
-                .Header = IIf(hasHeader = vbYes, xlYes, xlNo)
-                .MatchCase = False
-                .Orientation = xlTopToBottom
-                .Apply
-            End With
         End If
     Next colIdx
 
     MsgBox "Done. Alphabetical columns sorted " & _
-           IIf(sortDir = xlAscending, "A → Z", "Z → A") & ".", vbInformation
+           IIf(sortDir = xlAscending, "A to Z", "Z to A") & ".", vbInformation
     Exit Sub
 
 ErrorHandler:
@@ -78,27 +80,25 @@ ErrorHandler:
            vbCritical, "Sort Error"
 End Sub
 
-' -----------------------------------------------------------------------
-' Shared helper: copy the active sheet to a new tab named Backup_YYYYMMDD
-' -----------------------------------------------------------------------
-Sub CreateBackupSheet(ws As Worksheet)
+Private Sub CreateBackupSheet(ws As Worksheet)
     Dim backupName As String
+    Dim testName   As String
+    Dim counter    As Integer
+
     backupName = "Backup_" & Format(Now(), "YYYYMMDD")
-    ' Avoid duplicate names by appending a counter
-    Dim counter As Integer
-    counter = 1
-    Dim testName As String
     testName = backupName
+    counter = 1
     Do While SheetExists(ws.Parent, testName)
         testName = backupName & "_" & counter
         counter = counter + 1
     Loop
     ws.Copy After:=ws.Parent.Sheets(ws.Parent.Sheets.Count)
-    ws.Parent.Sheets(ws.Parent.Sheets.Count).Name = testName
+    ActiveSheet.Name = testName
+    ws.Activate
     MsgBox "Backup created: '" & testName & "'", vbInformation, "Backup"
 End Sub
 
-Function SheetExists(wb As Workbook, shName As String) As Boolean
+Private Function SheetExists(wb As Workbook, shName As String) As Boolean
     Dim sh As Object
     On Error Resume Next
     Set sh = wb.Sheets(shName)
