@@ -97,6 +97,15 @@ You will be prompted for the path to your `.xlsx` file and then presented with a
 
 ---
 
+## Tests
+
+The tests build small sample workbooks and CSVs in a temporary folder and run every operation against them:
+
+```bash
+pip install pytest openpyxl pandas
+python -m pytest tests
+```
+
 ---
 
 ## Install as a command (pipx)

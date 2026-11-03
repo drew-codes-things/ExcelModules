@@ -85,9 +85,16 @@ def count_changed(before: "pd.Series", after: "pd.Series") -> int:
     return int((~same).sum())
 
 
+TEXT_DTYPES = ["object", "string"]
+
+
+def is_text_column(series: "pd.Series") -> bool:
+    return pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)
+
+
 def transform_text(df: "pd.DataFrame", change) -> int:
     changed = 0
-    for col in df.select_dtypes(include="object").columns:
+    for col in df.select_dtypes(include=TEXT_DTYPES).columns:
         original = df[col].copy()
         df[col] = df[col].apply(lambda v: change(v) if isinstance(v, str) else v)
         changed += count_changed(original, df[col])
@@ -110,12 +117,12 @@ def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
     if missing_cols:
         print(f"Ignoring unknown column(s): {missing_cols}")
 
-    text_cols = [c for c in existing_cols if df[c].dtype == object]
+    text_cols = [c for c in existing_cols if is_text_column(df[c])]
     if not text_cols:
         print("No text columns found in the specified list - nothing sorted.")
         return path
 
-    df.sort_values(by=text_cols, ascending=ascending, inplace=True, ignore_index=True)
+    df = df.sort_values(by=text_cols, ascending=ascending, ignore_index=True)
     out = save_output(path, df, sheet)
     print(f"Sorted by {text_cols}. Output: {out}")
     return out
@@ -220,7 +227,7 @@ def remove_exact_duplicates(path: str, columns: Optional[list] = None,
     if columns and not require_columns(df, columns):
         return path
     before = len(df)
-    df.drop_duplicates(subset=columns, keep=keep, inplace=True, ignore_index=True)
+    df = df.drop_duplicates(subset=columns, keep=keep, ignore_index=True)
     removed = before - len(df)
     out = save_output(path, df, sheet)
     print(f"{removed} duplicate row(s) removed. Output: {out}")
