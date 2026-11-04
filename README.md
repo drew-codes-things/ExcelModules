@@ -24,7 +24,7 @@ Six data-cleaning operations available as standalone `.bas` VBA modules (import 
 | `Brackets around 4 digits.bas` | `brackets_around_4_digits()` | Wraps standalone 4-digit numbers (e.g. years) in parentheses across all text cells |
 | `Capitalise first words.bas` | `capitalise_proper()` / `capitalise_first_only()` | Applies Title Case or first-character-only capitalisation to every text cell |
 | `Highlight duplicates.bas` | `highlight_duplicates_multi_column()` / `highlight_duplicates_across_sheets()` | Highlights duplicate rows across selected columns (yellow) or matching values across two sheets (red) |
-| `Remove exact copies.bas` | `remove_exact_duplicates()` | Removes duplicate rows, keeping first, last, or removing all occurrences |
+| `Remove exact copies.bas` | `remove_exact_duplicates()` | VBA: clears duplicate cells in the selection (`RemoveDuplicatesKeepFirst` keeps the first occurrence, `RemoveExactDuplicates` clears every occurrence). Python: removes duplicate rows, keeping first, last, or none |
 | `Strip whitespace.bas` | `strip_whitespace()` | Trims leading/trailing and double spaces, or removes all spaces entirely |
 
 ---
