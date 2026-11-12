@@ -20,6 +20,7 @@ YELLOW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="s
 RED_FILL    = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 
 OUTPUT_OVERRIDE: Optional[str] = None
+ONLY_BLANK_CELLS_ARE_MISSING = {"keep_default_na": False, "na_values": [""]}
 
 
 def is_csv(path: str) -> bool:
@@ -45,10 +46,10 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
 
 def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]":
     if is_csv(path):
-        return pd.read_csv(path), "Sheet1"
+        return pd.read_csv(path, dtype=str, **ONLY_BLANK_CELLS_ARE_MISSING), "Sheet1"
     wb = load_workbook(path)
     sheet_name = sheet or wb.sheetnames[0]
-    df = pd.read_excel(path, sheet_name=sheet_name)
+    df = pd.read_excel(path, sheet_name=sheet_name, **ONLY_BLANK_CELLS_ARE_MISSING)
     return df, sheet_name
 
 
@@ -89,7 +90,10 @@ TEXT_DTYPES = ["object", "string"]
 
 
 def is_text_column(series: "pd.Series") -> bool:
-    return pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)
+    if not (pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)):
+        return False
+    values = series.dropna()
+    return bool(pd.to_numeric(values, errors="coerce").isna().any())
 
 
 def transform_text(df: "pd.DataFrame", change) -> int:

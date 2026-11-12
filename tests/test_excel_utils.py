@@ -165,3 +165,17 @@ def test_csv_input_with_xlsx_override(tmp_path, monkeypatch):
     monkeypatch.setattr(excel_utils, "OUTPUT_OVERRIDE", str(target))
     excel_utils.capitalise_proper(path)
     assert sheet_rows(target, "Sheet1") == [["Name"], ["Bob"]]
+
+
+def test_csv_cells_the_operation_does_not_touch_are_written_back_unchanged(tmp_path):
+    path = tmp_path / "people.csv"
+    path.write_text("Name,Zip,Count,Note\n  alice ,01234,1,NA\nbob,00501,,null\n", encoding="utf-8")
+    out = excel_utils.strip_whitespace(str(path))
+    with open(out, encoding="utf-8") as written:
+        assert written.read().splitlines() == ["Name,Zip,Count,Note", "alice,01234,1,NA", "bob,00501,,null"]
+
+
+def test_xlsx_text_that_looks_like_a_missing_value_is_kept(tmp_path):
+    path = make_workbook(tmp_path / "notes.xlsx", {"Notes": [["Name", "Note"], [" alice ", "NA"], ["bob", "null"], ["carol", None]]})
+    out = excel_utils.strip_whitespace(path)
+    assert sheet_rows(out, "Notes")[1:] == [["alice", "NA"], ["bob", "null"], ["carol", None]]
