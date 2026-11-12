@@ -21,7 +21,7 @@ Six data-cleaning operations available as standalone `.bas` VBA modules (import 
 | VBA file | Python function | What it does |
 |----------|----------------|--------------|
 | `Alphabetical order sort.bas` | `sort_columns()` | Sorts text columns alphabetically; numeric columns are skipped |
-| `Brackets around 4 digits.bas` | `brackets_around_4_digits()` | Wraps standalone 4-digit numbers (e.g. years) in parentheses across all text cells |
+| `Brackets around 4 digits.bas` | `brackets_around_4_digits()` | Wraps standalone 4-digit numbers (e.g. years) in parentheses across all text cells. Python leaves alone cells that are just a number (`1500`, `1234.56`), decimals (`costs 1234.56`), and digit groups such as phone or card numbers (`0161 496 0123`, `2024-01-15`); up to two years joined by a space or dash (`2019-2020`) are still bracketed |
 | `Capitalise first words.bas` | `capitalise_proper()` / `capitalise_first_only()` | Applies Proper Case or first-character-only capitalisation to every text cell. Proper Case works like Excel's `StrConv(..., vbProperCase)`: words are split on spaces, tabs and line breaks only, so `it's o'neil 2ND` becomes `It's O'neil 2nd` |
 | `Highlight duplicates.bas` | `highlight_duplicates_multi_column()` / `highlight_duplicates_across_sheets()` | Highlights duplicate rows across selected columns (yellow) or matching values across two sheets (red) |
 | `Remove exact copies.bas` | `remove_exact_duplicates()` | VBA: clears duplicate cells in the selection (`RemoveDuplicatesKeepFirst` keeps the first occurrence, `RemoveExactDuplicates` clears every occurrence). Python: removes duplicate rows, keeping first, last, or none |

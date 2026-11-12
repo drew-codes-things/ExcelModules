@@ -200,3 +200,32 @@ def test_capitalise_proper_keeps_apostrophes_and_ordinals(tmp_path):
     path = make_csv(tmp_path / "names.csv", [["Name"], ["it's john's 2nd o'neil"]])
     out = excel_utils.capitalise_proper(path)
     assert pd.read_csv(out, dtype=str)["Name"].tolist() == ["It's John's 2nd O'neil"]
+
+
+@pytest.mark.parametrize("text", [
+    "1234.56", "1500", "1,500", "-2024", "0161 496 0123", "call 0161 496 0123", "costs 1234.56 in total",
+    "rate 12,3456", "1234,56", "card 1234 5678 9012 3456", "2024-01-15",
+])
+def test_brackets_leave_amounts_phone_numbers_and_longer_digit_groups_alone(text):
+    assert excel_utils.bracket_four_digit_numbers(text) == text
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("born 1990", "born (1990)"),
+    ("in 1990.", "in (1990)."),
+    ("1990, 1991", "(1990), (1991)"),
+    ("2019-2020", "(2019)-(2020)"),
+    ("1990 1991", "(1990) (1991)"),
+    ("1985 (1985)", "(1985) (1985)"),
+    ("ref 2024", "ref (2024)"),
+])
+def test_brackets_still_wrap_standalone_four_digit_numbers(text, expected):
+    assert excel_utils.bracket_four_digit_numbers(text) == expected
+
+
+def test_brackets_leave_csv_amounts_and_phone_numbers_unchanged(tmp_path):
+    path = make_csv(tmp_path / "money.csv", [["Amount", "Phone", "Note"], ["1234.56", "0161 496 0123", "since 1999"],
+                                             ["1500", "01614960123", "1500"]])
+    out = excel_utils.brackets_around_4_digits(path)
+    assert pd.read_csv(out, dtype=str).values.tolist() == [["1234.56", "0161 496 0123", "since (1999)"],
+                                                          ["1500", "01614960123", "1500"]]

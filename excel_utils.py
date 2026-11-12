@@ -136,12 +136,49 @@ def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
     return out
 
 
-_FOUR_DIGIT = re.compile(r"(?<![\(\d])(\d{4})(?![\)\d])")
+_DIGIT_RUN = re.compile(r"\d+(?:[ -]\d+)*")
+_DIGIT_RUN_SEPARATOR = re.compile(r"[ -]")
+_NUMBER_CELL = re.compile(r"\s*[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*")
+_DECIMAL_BEFORE = re.compile(r"\d[.,]$")
+_DECIMAL_AFTER = re.compile(r"^[.,]\d")
+YEAR_DIGITS = 4
+MAX_YEARS_IN_A_RUN = 2
+
+
+def looks_like_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return bool(_NUMBER_CELL.fullmatch(text))
+    return True
+
+
+def is_standalone_year_run(text: str, run: "re.Match") -> bool:
+    groups = _DIGIT_RUN_SEPARATOR.split(run.group(0))
+    if len(groups) > MAX_YEARS_IN_A_RUN or any(len(group) != YEAR_DIGITS for group in groups):
+        return False
+    before = text[:run.start()]
+    after = text[run.end():]
+    if before.endswith("(") or after.startswith(")"):
+        return False
+    return not (_DECIMAL_BEFORE.search(before) or _DECIMAL_AFTER.search(after))
+
+
+def bracket_four_digit_numbers(text: str) -> str:
+    if looks_like_number(text):
+        return text
+
+    def bracket_run(run: "re.Match") -> str:
+        if not is_standalone_year_run(text, run):
+            return run.group(0)
+        return re.sub(r"\d+", r"(\g<0>)", run.group(0))
+
+    return _DIGIT_RUN.sub(bracket_run, text)
 
 
 def brackets_around_4_digits(path: str) -> str:
     df, sheet = load_df(path)
-    changed = transform_text(df, lambda v: _FOUR_DIGIT.sub(r"(\1)", v))
+    changed = transform_text(df, bracket_four_digit_numbers)
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
