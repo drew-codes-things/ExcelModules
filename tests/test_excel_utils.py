@@ -179,3 +179,9 @@ def test_xlsx_text_that_looks_like_a_missing_value_is_kept(tmp_path):
     path = make_workbook(tmp_path / "notes.xlsx", {"Notes": [["Name", "Note"], [" alice ", "NA"], ["bob", "null"], ["carol", None]]})
     out = excel_utils.strip_whitespace(path)
     assert sheet_rows(out, "Notes")[1:] == [["alice", "NA"], ["bob", "null"], ["carol", None]]
+
+
+def test_sort_ignores_case_and_copes_with_numbers_among_the_text(tmp_path):
+    path = make_workbook(tmp_path / "mixed.xlsx", {"Names": [["Name", "Row"], ["bob", 1], [12, 2], ["Zed", 3], ["alice", 4], [None, 5]]})
+    out = excel_utils.sort_columns(path, ["Name"])
+    assert sheet_rows(out, "Names")[1:] == [[12, 2], ["alice", 4], ["bob", 1], ["Zed", 3], [None, 5]]

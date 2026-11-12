@@ -96,6 +96,10 @@ def is_text_column(series: "pd.Series") -> bool:
     return bool(pd.to_numeric(values, errors="coerce").isna().any())
 
 
+def alphabetical_key(series: "pd.Series") -> "pd.Series":
+    return series.map(lambda v: v if pd.isna(v) else str(v).casefold())
+
+
 def transform_text(df: "pd.DataFrame", change) -> int:
     changed = 0
     for col in df.select_dtypes(include=TEXT_DTYPES).columns:
@@ -126,7 +130,7 @@ def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
         print("No text columns found in the specified list - nothing sorted.")
         return path
 
-    df = df.sort_values(by=text_cols, ascending=ascending, ignore_index=True)
+    df = df.sort_values(by=text_cols, ascending=ascending, ignore_index=True, key=alphabetical_key)
     out = save_output(path, df, sheet)
     print(f"Sorted by {text_cols}. Output: {out}")
     return out
