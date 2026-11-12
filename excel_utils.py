@@ -147,9 +147,16 @@ def brackets_around_4_digits(path: str) -> str:
     return out
 
 
+_PROPER_CASE_WORD = re.compile(r"[^\x00\t\n\v\f\r ]+")
+
+
+def proper_case(text: str) -> str:
+    return _PROPER_CASE_WORD.sub(lambda word: word.group(0)[:1].upper() + word.group(0)[1:].lower(), text)
+
+
 def capitalise_proper(path: str) -> str:
     df, sheet = load_df(path)
-    changed = transform_text(df, str.title)
+    changed = transform_text(df, proper_case)
     out = save_output(path, df, sheet)
     print(f"{changed} cell(s) converted. Output: {out}")
     return out

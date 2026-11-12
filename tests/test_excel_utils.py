@@ -185,3 +185,18 @@ def test_sort_ignores_case_and_copes_with_numbers_among_the_text(tmp_path):
     path = make_workbook(tmp_path / "mixed.xlsx", {"Names": [["Name", "Row"], ["bob", 1], [12, 2], ["Zed", 3], ["alice", 4], [None, 5]]})
     out = excel_utils.sort_columns(path, ["Name"])
     assert sheet_rows(out, "Names")[1:] == [[12, 2], ["alice", 4], ["bob", 1], ["Zed", 3], [None, 5]]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("it's john's 2nd o'neil", "It's John's 2nd O'neil"),
+    ("MARY-JANE mcDONALD", "Mary-jane Mcdonald"),
+    ("  two\tspaced\nlines ", "  Two\tSpaced\nLines "),
+])
+def test_proper_case_matches_excel_proper_case(text, expected):
+    assert excel_utils.proper_case(text) == expected
+
+
+def test_capitalise_proper_keeps_apostrophes_and_ordinals(tmp_path):
+    path = make_csv(tmp_path / "names.csv", [["Name"], ["it's john's 2nd o'neil"]])
+    out = excel_utils.capitalise_proper(path)
+    assert pd.read_csv(out, dtype=str)["Name"].tolist() == ["It's John's 2nd O'neil"]
