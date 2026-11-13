@@ -119,8 +119,6 @@ pipx install .
 excel-utils
 ```
 
-Logging: set `LOG_LEVEL` (e.g. `DEBUG`) and `LOG_FILE` to also write logs to a file.
-
 
 ## Get the Code
 
