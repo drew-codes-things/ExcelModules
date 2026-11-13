@@ -3,6 +3,7 @@ import csv as csvlib
 import re
 import shutil
 import sys
+from copy import copy
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +11,9 @@ try:
     import pandas as pd
     import openpyxl
     from openpyxl import load_workbook
+    from openpyxl.formula.translate import Translator
     from openpyxl.styles import PatternFill
+    from openpyxl.utils import get_column_letter
 except ImportError:
     print("Missing dependencies. Run: pip install openpyxl pandas")
     sys.exit(1)
@@ -20,6 +23,9 @@ YELLOW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="s
 RED_FILL    = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 
 OUTPUT_OVERRIDE: Optional[str] = None
+FIRST_DATA_ROW = 2
+FORMULA = "f"
+TEXT = "s"
 ONLY_BLANK_CELLS_ARE_MISSING = {"keep_default_na": False, "na_values": [""]}
 
 
@@ -44,11 +50,15 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
     return str(source.with_name(source.stem + default_suffix + ".xlsx"))
 
 
+def processed_sheet_name(workbook) -> str:
+    return workbook.sheetnames[0]
+
+
 def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]":
     if is_csv(path):
         return pd.read_csv(path, dtype=str, **ONLY_BLANK_CELLS_ARE_MISSING), "Sheet1"
     wb = load_workbook(path)
-    sheet_name = sheet or wb.sheetnames[0]
+    sheet_name = sheet or processed_sheet_name(wb)
     df = pd.read_excel(path, sheet_name=sheet_name, **ONLY_BLANK_CELLS_ARE_MISSING)
     return df, sheet_name
 
@@ -79,6 +89,76 @@ def save_output(path: str, df: pd.DataFrame, sheet: str) -> str:
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name=sheet, index=False)
     return out
+
+
+def edits_xlsx_in_place(path: str) -> bool:
+    return not is_csv(path) and not resolve_output(path, "_processed", ".xlsx").lower().endswith(".csv")
+
+
+def save_workbook(path: str, workbook) -> str:
+    out = resolve_output(path, "_processed", ".xlsx")
+    workbook.save(out)
+    return out
+
+
+def set_value(cell, value, data_type: str) -> None:
+    cell.value = value
+    if data_type != FORMULA and isinstance(value, str):
+        cell.data_type = TEXT
+
+
+def change_sheet_text(sheet, change) -> int:
+    changed = 0
+    for row in sheet.iter_rows(min_row=FIRST_DATA_ROW):
+        for cell in row:
+            if not isinstance(cell.value, str) or cell.data_type == FORMULA:
+                continue
+            new_value = change(cell.value)
+            if new_value != cell.value:
+                set_value(cell, new_value, TEXT)
+                changed += 1
+    return changed
+
+
+def change_text_cells(path: str, change) -> "tuple[int, str]":
+    if not edits_xlsx_in_place(path):
+        df, sheet = load_df(path)
+        changed = transform_text(df, change)
+        return changed, save_output(path, df, sheet)
+    workbook = load_workbook(path)
+    changed = change_sheet_text(workbook[processed_sheet_name(workbook)], change)
+    return changed, save_workbook(path, workbook)
+
+
+def moved_value(value, data_type: str, column: int, source_row: int, target_row: int):
+    if data_type != FORMULA or not isinstance(value, str) or source_row == target_row:
+        return value
+    letter = get_column_letter(column)
+    return Translator(value, origin=f"{letter}{source_row}").translate_formula(f"{letter}{target_row}")
+
+
+def rewrite_data_rows(sheet, kept_positions: list, data_row_count: int) -> None:
+    snapshot = [[(cell.value, cell.data_type, copy(cell._style)) for cell in row]
+                for row in sheet.iter_rows(min_row=FIRST_DATA_ROW, max_row=FIRST_DATA_ROW + data_row_count - 1,
+                                           max_col=sheet.max_column)]
+    for target_offset, source_offset in enumerate(kept_positions):
+        source_row = FIRST_DATA_ROW + source_offset
+        target_row = FIRST_DATA_ROW + target_offset
+        for column, (value, data_type, style) in enumerate(snapshot[source_offset], 1):
+            cell = sheet.cell(target_row, column)
+            set_value(cell, moved_value(value, data_type, column, source_row, target_row), data_type)
+            cell._style = copy(style)
+    removed = data_row_count - len(kept_positions)
+    if removed:
+        sheet.delete_rows(FIRST_DATA_ROW + len(kept_positions), removed)
+
+
+def save_kept_rows(path: str, df: "pd.DataFrame", kept: "pd.DataFrame", sheet: str) -> str:
+    if not edits_xlsx_in_place(path):
+        return save_output(path, kept.reset_index(drop=True), sheet)
+    workbook = load_workbook(path)
+    rewrite_data_rows(workbook[sheet], list(kept.index), len(df))
+    return save_workbook(path, workbook)
 
 
 def count_changed(before: "pd.Series", after: "pd.Series") -> int:
@@ -130,8 +210,8 @@ def sort_columns(path: str, columns: list, ascending: bool = True) -> str:
         print("No text columns found in the specified list - nothing sorted.")
         return path
 
-    df = df.sort_values(by=text_cols, ascending=ascending, ignore_index=True, key=alphabetical_key)
-    out = save_output(path, df, sheet)
+    sorted_df = df.sort_values(by=text_cols, ascending=ascending, key=alphabetical_key)
+    out = save_kept_rows(path, df, sorted_df, sheet)
     print(f"Sorted by {text_cols}. Output: {out}")
     return out
 
@@ -177,9 +257,7 @@ def bracket_four_digit_numbers(text: str) -> str:
 
 
 def brackets_around_4_digits(path: str) -> str:
-    df, sheet = load_df(path)
-    changed = transform_text(df, bracket_four_digit_numbers)
-    out = save_output(path, df, sheet)
+    changed, out = change_text_cells(path, bracket_four_digit_numbers)
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
 
@@ -192,17 +270,13 @@ def proper_case(text: str) -> str:
 
 
 def capitalise_proper(path: str) -> str:
-    df, sheet = load_df(path)
-    changed = transform_text(df, proper_case)
-    out = save_output(path, df, sheet)
+    changed, out = change_text_cells(path, proper_case)
     print(f"{changed} cell(s) converted. Output: {out}")
     return out
 
 
 def capitalise_first_only(path: str) -> str:
-    df, sheet = load_df(path)
-    changed = transform_text(df, lambda v: v[:1].upper() + v[1:])
-    out = save_output(path, df, sheet)
+    changed, out = change_text_cells(path, lambda v: v[:1].upper() + v[1:])
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
 
@@ -278,21 +352,18 @@ def remove_exact_duplicates(path: str, columns: Optional[list] = None,
     df, sheet = load_df(path)
     if columns and not require_columns(df, columns):
         return path
-    before = len(df)
-    df = df.drop_duplicates(subset=columns, keep=keep, ignore_index=True)
-    removed = before - len(df)
-    out = save_output(path, df, sheet)
+    kept = df.drop_duplicates(subset=columns, keep=keep)
+    removed = len(df) - len(kept)
+    out = save_kept_rows(path, df, kept, sheet)
     print(f"{removed} duplicate row(s) removed. Output: {out}")
     return out
 
 
 def strip_whitespace(path: str, remove_all: bool = False) -> str:
-    df, sheet = load_df(path)
     if remove_all:
-        changed = transform_text(df, lambda v: v.replace(" ", ""))
+        changed, out = change_text_cells(path, lambda v: v.replace(" ", ""))
     else:
-        changed = transform_text(df, lambda v: " ".join(v.split()))
-    out = save_output(path, df, sheet)
+        changed, out = change_text_cells(path, lambda v: " ".join(v.split()))
     print(f"{changed} cell(s) updated. Output: {out}")
     return out
 

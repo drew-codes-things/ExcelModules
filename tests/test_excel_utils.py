@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 
 import excel_utils
 
@@ -229,3 +230,63 @@ def test_brackets_leave_csv_amounts_and_phone_numbers_unchanged(tmp_path):
     out = excel_utils.brackets_around_4_digits(path)
     assert pd.read_csv(out, dtype=str).values.tolist() == [["1234.56", "0161 496 0123", "since (1999)"],
                                                           ["1500", "01614960123", "1500"]]
+
+
+def make_formatted_workbook(path, rows):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    for row in rows:
+        sheet.append(row)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.column_dimensions["A"].width = 40
+    workbook.save(path)
+    return str(path)
+
+
+def assert_formatting_kept(path):
+    sheet = load_workbook(path)["Data"]
+    assert sheet.column_dimensions["A"].width == 40
+    assert all(cell.font.bold for cell in sheet[1])
+
+
+def test_xlsx_processing_keeps_formulas_widths_and_fonts(tmp_path):
+    path = make_formatted_workbook(tmp_path / "f.xlsx", [["n", "total", "when"], ["  a  b ", "=LEN(A2)", "=1+1"],
+                                                          ["c ", "=LEN(A3)", None]])
+    out = excel_utils.strip_whitespace(path)
+    assert sheet_rows(out, "Data") == [["n", "total", "when"], ["a b", "=LEN(A2)", "=1+1"], ["c", "=LEN(A3)", None]]
+    assert_formatting_kept(out)
+
+
+def test_xlsx_sort_moves_formulas_and_styles_with_their_row(tmp_path):
+    path = make_formatted_workbook(tmp_path / "s.xlsx", [["Name", "Len"], ["bob", "=LEN(A2)"], ["alice", "=LEN(A3)"]])
+    workbook = load_workbook(path)
+    workbook["Data"]["A2"].font = Font(italic=True)
+    workbook.save(path)
+    out = excel_utils.sort_columns(path, ["Name"])
+    assert sheet_rows(out, "Data") == [["Name", "Len"], ["alice", "=LEN(A2)"], ["bob", "=LEN(A3)"]]
+    assert load_workbook(out)["Data"]["A3"].font.italic
+    assert_formatting_kept(out)
+
+
+def test_xlsx_remove_duplicates_keeps_formulas_of_the_remaining_rows(tmp_path):
+    path = make_formatted_workbook(tmp_path / "d.xlsx", [["A", "Len"], ["x", "=LEN(A2)"], ["x", "=LEN(A3)"],
+                                                          ["y", "=LEN(A4)"]])
+    out = excel_utils.remove_exact_duplicates(path, columns=["A"])
+    assert sheet_rows(out, "Data") == [["A", "Len"], ["x", "=LEN(A2)"], ["y", "=LEN(A3)"]]
+    assert_formatting_kept(out)
+
+
+def test_xlsx_text_starting_with_an_equals_sign_stays_text(tmp_path):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    for row in [["Name", "Note"], ["bob", None], ["alice", " =not a formula "]]:
+        sheet.append(row)
+    sheet["B3"].data_type = "s"
+    workbook.save(tmp_path / "eq.xlsx")
+    sorted_out = excel_utils.sort_columns(str(tmp_path / "eq.xlsx"), ["Name"])
+    stripped = excel_utils.strip_whitespace(sorted_out)
+    cell = load_workbook(stripped)["Data"]["B2"]
+    assert (cell.value, cell.data_type) == ("=not a formula", "s")
