@@ -51,7 +51,7 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
 
 
 def processed_sheet_name(workbook) -> str:
-    return workbook.sheetnames[0]
+    return workbook.active.title
 
 
 def load_df(path: str, sheet: Optional[str] = None) -> "tuple[pd.DataFrame, str]":

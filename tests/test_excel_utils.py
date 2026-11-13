@@ -290,3 +290,21 @@ def test_xlsx_text_starting_with_an_equals_sign_stays_text(tmp_path):
     stripped = excel_utils.strip_whitespace(sorted_out)
     cell = load_workbook(stripped)["Data"]["B2"]
     assert (cell.value, cell.data_type) == ("=not a formula", "s")
+
+
+def test_every_operation_works_on_the_active_sheet(tmp_path):
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    for name in ("First", "Second"):
+        sheet = workbook.create_sheet(name)
+        for row in [["Name"], [" x "], [" x "]]:
+            sheet.append(row)
+    workbook.active = 1
+    path = str(tmp_path / "two.xlsx")
+    workbook.save(path)
+    stripped = excel_utils.strip_whitespace(path)
+    assert sheet_rows(stripped, "Second") == [["Name"], ["x"], ["x"]]
+    assert sheet_rows(stripped, "First") == [["Name"], [" x "], [" x "]]
+    highlighted = load_workbook(excel_utils.highlight_duplicates_multi_column(path, ["Name"]))
+    assert highlighted["Second"]["A2"].fill.start_color.rgb.endswith("FFFF00")
+    assert not highlighted["First"]["A2"].fill.start_color.rgb.endswith("FFFF00")

@@ -41,7 +41,7 @@ Six data-cleaning operations available as standalone `.bas` VBA modules (import 
 
 The Python script mirrors all six VBA operations and writes output to a new file so the original is never overwritten. It accepts **`.xlsx` or `.csv`** input (CSV in -> CSV out for the data-transform operations; highlight operations always produce `.xlsx` since CSV can't store cell fills).
 
-For `.xlsx` input with `.xlsx` output the cells are edited in place, so formulas, column widths, fonts and fills survive; formula cells themselves are never rewritten, and sorting or removing duplicate rows moves each row's formulas and formatting with it. Merged cells, row heights and conditional formatting ranges are not moved by a sort.
+For `.xlsx` input every operation except the cross-sheet highlight works on the active sheet (the one that was showing when the file was last saved), as the VBA macros do. For `.xlsx` input with `.xlsx` output the cells are edited in place, so formulas, column widths, fonts and fills survive; formula cells themselves are never rewritten, and sorting or removing duplicate rows moves each row's formulas and formatting with it. Merged cells, row heights and conditional formatting ranges are not moved by a sort.
 
 Run non-interactively-friendly with flags:
 
