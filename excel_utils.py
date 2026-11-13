@@ -1,7 +1,6 @@
 import argparse
 import csv as csvlib
 import re
-import shutil
 import sys
 from copy import copy
 from pathlib import Path
@@ -90,11 +89,6 @@ def save_output(path: str, df: pd.DataFrame, sheet: str) -> str:
     out = resolve_output(path, "_processed", ext)
     if out.lower().endswith(".csv"):
         df.to_csv(out, index=False)
-    elif not is_csv(path):
-        if Path(out).resolve() != Path(path).resolve():
-            shutil.copyfile(path, out)
-        with pd.ExcelWriter(out, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-            df.to_excel(writer, sheet_name=sheet, index=False)
     else:
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name=sheet, index=False)
