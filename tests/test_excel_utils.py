@@ -1,3 +1,5 @@
+import sys
+
 import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -308,3 +310,33 @@ def test_every_operation_works_on_the_active_sheet(tmp_path):
     highlighted = load_workbook(excel_utils.highlight_duplicates_multi_column(path, ["Name"]))
     assert highlighted["Second"]["A2"].fill.start_color.rgb.endswith("FFFF00")
     assert not highlighted["First"]["A2"].fill.start_color.rgb.endswith("FFFF00")
+
+
+def run_main(monkeypatch, arguments, *answers):
+    replies = iter(answers)
+    monkeypatch.setattr(sys, "argv", ["excel_utils", *arguments])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
+    with pytest.raises(SystemExit) as stopped:
+        excel_utils.main()
+    return stopped.value.code
+
+
+def test_output_path_equal_to_the_input_is_refused(tmp_path, monkeypatch, capsys):
+    path = make_csv(tmp_path / "names.csv", [["Name"], ["  bob "]])
+    original = (tmp_path / "names.csv").read_text()
+    assert run_main(monkeypatch, ["-i", path, "-o", path], "9") == 1
+    assert (tmp_path / "names.csv").read_text() == original
+    assert "is the input file" in capsys.readouterr().out
+
+
+def test_highlight_output_that_would_land_on_the_input_is_refused(tmp_path, monkeypatch, capsys):
+    path = make_workbook(tmp_path / "data.xlsx", {"Data": [["A"], ["x"], ["x"]]})
+    assert run_main(monkeypatch, ["-i", path, "-o", str(tmp_path / "data.csv")], "5", "A") == 1
+    assert "is the input file" in capsys.readouterr().out
+
+
+def test_empty_csv_gives_a_friendly_error(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "empty.csv"
+    path.write_text("")
+    assert run_main(monkeypatch, ["-i", str(path)], "9") == 1
+    assert "is empty" in capsys.readouterr().out

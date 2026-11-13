@@ -52,7 +52,7 @@ python excel_utils.py --input data.csv --output cleaned.csv
 | Flag | Description |
 |------|-------------|
 | `-i`, `--input` | Path to the `.xlsx` / `.csv` file (skips the path prompt) |
-| `-o`, `--output` | Exact output path, overriding the default `_processed` / `_highlighted` naming |
+| `-o`, `--output` | Exact output path, overriding the default `_processed` / `_highlighted` naming. A path that is the input file is refused |
 
 **Install dependencies:**
 

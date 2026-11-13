@@ -33,9 +33,19 @@ def is_csv(path: str) -> bool:
     return Path(path).suffix.lower() == ".csv"
 
 
+class OutputIsInputError(ValueError):
+    pass
+
+
+def refuse_input_as_output(path: str, out: str) -> str:
+    if Path(out).resolve() == Path(path).resolve():
+        raise OutputIsInputError(f"Output {out} is the input file; choose a different -o path so the original is kept.")
+    return out
+
+
 def resolve_output(path: str, default_suffix: str, ext: str) -> str:
     if OUTPUT_OVERRIDE:
-        return OUTPUT_OVERRIDE
+        return refuse_input_as_output(path, OUTPUT_OVERRIDE)
     source = Path(path)
     return str(source.with_name(source.stem + default_suffix + ext))
 
@@ -45,7 +55,7 @@ def resolve_output_xlsx(path: str, default_suffix: str) -> str:
         o = OUTPUT_OVERRIDE
         if not o.lower().endswith(".xlsx"):
             o = str(Path(o).with_suffix(".xlsx"))
-        return o
+        return refuse_input_as_output(path, o)
     source = Path(path)
     return str(source.with_name(source.stem + default_suffix + ".xlsx"))
 
@@ -406,7 +416,17 @@ def main():
         return
 
     choice = input("Choose an option: ").strip()
+    try:
+        run_choice(choice, path)
+    except OutputIsInputError as error:
+        print(error)
+        sys.exit(1)
+    except pd.errors.EmptyDataError:
+        print(f"{path} is empty: there is nothing to process.")
+        sys.exit(1)
 
+
+def run_choice(choice: str, path: str) -> None:
     if choice == "1":
         cols = input("Column names to sort by (comma-separated): ").split(",")
         asc  = input("Ascending? (y/n): ").lower() != "n"
